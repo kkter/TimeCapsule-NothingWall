@@ -1,0 +1,5 @@
+
+# Ignore log files directory
+logs/
+.env
+.DS_Store

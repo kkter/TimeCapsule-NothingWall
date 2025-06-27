@@ -1,0 +1,18 @@
+services:
+  time-capsule-bot:
+    build: .
+    container_name: time-capsule-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - app_network # 1. 将服务连接到 app_network
+
+networks:
+  app_network: # 2. 声明 app_network
+    external: true # 3. 关键：将其标记为“外部网络”

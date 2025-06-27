@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nothing Wall - Time Capsules</title>
+
+    <meta name="description" content="A digital wall of wisdom where time capsules float by, sharing insights and moments from the past.">
+    <meta name="keywords" content="wisdom sentences, time capsules, digital art, floating bubbles">
+    <meta property="og:title" content="Nothing Wall - Time Capsules">
+    <meta property="og:description" content="A digital wall of wisdom where time capsules float by, sharing insights and moments from the past.">
+    <meta property="og:type" content="website">
+
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="0.5" fill="white" opacity="0.8"/><circle cx="80" cy="40" r="0.3" fill="white" opacity="0.6"/><circle cx="40" cy="80" r="0.4" fill="white" opacity="0.7"/><circle cx="90" cy="90" r="0.2" fill="white" opacity="0.5"/></svg>') repeat;
+            animation: twinkle 10s infinite;
+        }
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 0.3; }
+        }
+        .wisdom-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .wisdom-bubble {
+            position: absolute;
+            padding: 15px 25px;
+            border-radius: 25px;
+            color: white;
+            font-size: 16px;
+            line-height: 1.4;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            max-width: 400px;
+            word-wrap: break-word;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .wisdom-bubble:hover { transform: scale(1.05); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+        .wisdom-bubble.paused { animation-play-state: paused !important; z-index: 1000; }
+        .time-stamp { font-size: 12px; opacity: 0.7; margin-top: 5px; text-align: right; }
+        .float-left-to-right { animation: floatLR 20s linear infinite; }
+        .float-right-to-left { animation: floatRL 22s linear infinite; }
+        .float-diagonal { animation: floatDiagonal 25s linear infinite; }
+        .float-wave { animation: floatWave 18s linear infinite; }
+        @keyframes floatLR { 0% { transform: translateX(-100px) translateY(0px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(-20px); opacity: 0; } }
+        @keyframes floatRL { 0% { transform: translateX(calc(100vw + 100px)) translateY(0px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(-100px) translateY(30px); opacity: 0; } }
+        @keyframes floatDiagonal { 0% { transform: translateX(-100px) translateY(100vh); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(-100px); opacity: 0; } }
+        @keyframes floatWave { 0% { transform: translateX(-100px) translateY(0px); opacity: 0; } 10% { opacity: 1; } 25% { transform: translateX(25vw) translateY(-40px); } 50% { transform: translateX(50vw) translateY(20px); } 75% { transform: translateX(75vw) translateY(-30px); } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(10px); opacity: 0; } }
+        .header { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); text-align: center; color: white; z-index: 100; }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .header p { font-size: 1.1rem; opacity: 0.8; }
+        .floating-info { position: absolute; bottom: 30px; right: 30px; color: white; opacity: 0.7; font-size: 14px; text-align: right; }
+        @media (max-width: 768px) { 
+            .wisdom-bubble { font-size: 14px; padding: 12px 20px; max-width: 300px; } 
+            .header h1 { font-size: 1.6rem; } 
+        }
+    </style>
+    <script defer src="https://umami.520353.xyz/demo.js" data-website-id="9a625531-c851-4b25-b66b-bd752211f59e"></script>
+</head>
+<body>
+    <div class="stars"></div>
+    <header class="header">
+        <h1>Nothing Wall ● Time Capsules</h1>
+    </header>
+    <main class="wisdom-container" id="wisdomContainer"></main>
+    <aside class="floating-info">
+        <div>Click on bubbles to pause and read.</div>
+        <div>Bubbles from <a href="https://t.me/MoonTimeCapsuleBot" target="_blank" style="color: #4ecdc4; text-decoration: none; border-bottom: 1px dotted;">Time Capsules</a>.</div>
+    </aside>
+    <script>
+        class WisdomWall {
+            constructor() {
+                this.container = document.getElementById('wisdomContainer');
+                this.messages = [];
+                this.activeElements = [];
+                this.colorPalette = [
+                    'linear-gradient(135deg, rgba(255, 20, 147, 0.3), rgba(255, 105, 180, 0.3))',
+                    'linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 165, 0, 0.3))',
+                    'linear-gradient(135deg, rgba(0, 255, 127, 0.3), rgba(32, 178, 170, 0.3))',
+                    'linear-gradient(135deg, rgba(138, 43, 226, 0.3), rgba(75, 0, 130, 0.3))',
+                    'linear-gradient(135deg, rgba(30, 144, 255, 0.3), rgba(0, 191, 255, 0.3))',
+                    'linear-gradient(135deg, rgba(255, 69, 0, 0.3), rgba(255, 140, 0, 0.3))',
+                    'linear-gradient(135deg, rgba(50, 205, 50, 0.3), rgba(124, 252, 0, 0.3))',
+                    'linear-gradient(135deg, rgba(255, 20, 147, 0.3), rgba(199, 21, 133, 0.3))'
+                ];
+                this.animationTypes = ['float-left-to-right', 'float-right-to-left', 'float-diagonal', 'float-wave'];
+                this.loadMessages();
+                this.startAnimation();
+            }
+            async loadMessages() {
+                try {
+                    const response = await fetch('time_capsules.json');
+                    const allCapsules = await response.json();
+                    this.messages = allCapsules
+                        .filter(capsule => capsule.shared === true)
+                        .map(capsule => ({
+                            message: capsule.message,
+                            original_time: capsule.created_at,
+                            shared_at: capsule.created_at,
+                            reactions: 0
+                        }));
+                    console.log(`Loaded ${this.messages.length} shared messages`);
+                } catch (error) {
+                    this.messages = [
+                        { message: "当你和另一伴吵架时你们要记得，\n是你们vs问题，\n而不是你vs他。", original_time: "2023-01-12T11:13:25.278397", shared_at: "2023-01-12T18:15:25.278397", reactions: 5 },
+                        { message: "Those who can get out of a storm never rely on an umbrella.", original_time: "2023-09-02T11:17:57.153028", shared_at: "2023-09-02T18:20:25.278397", reactions: 3 },
+                        { message: "If you cannot decide, the answer is no.", original_time: "2025-06-02T17:13:31.734241", shared_at: "2025-06-02T18:25:25.278397", reactions: 8 }
+                    ];
+                    console.log('Using sample data');
+                }
+            }
+            getTimeAgo(timestamp) {
+                const now = new Date();
+                const past = new Date(timestamp);
+                const diffMs = now - past;
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                const diffDays = Math.floor(diffHours / 24);
+                if (diffDays > 0) {
+                    return `${diffDays} days ago`;
+                } else if (diffHours > 0) {
+                    return `${diffHours} hours ago`;
+                } else {
+                    return 'Just now';
+                }
+            }
+            createWisdomBubble(messageData) {
+                const bubble = document.createElement('div');
+                const randomColor = this.colorPalette[Math.floor(Math.random() * this.colorPalette.length)];
+                const randomAnimation = this.animationTypes[Math.floor(Math.random() * this.animationTypes.length)];
+                bubble.className = `wisdom-bubble ${randomAnimation}`;
+                bubble.style.background = randomColor;
+                bubble.innerHTML = `
+                    <div class="message-text">${messageData.message.replace(/\n/g, '<br>')}</div>
+                    <div class="time-stamp">✨ ${this.getTimeAgo(messageData.original_time)}</div>
+                `;
+                const startY = Math.random() * (window.innerHeight - 100);
+                bubble.style.top = startY + 'px';
+                let isPaused = false;
+                bubble.addEventListener('click', () => {
+                    if (isPaused) {
+                        bubble.classList.remove('paused');
+                        isPaused = false;
+                    } else {
+                        bubble.classList.add('paused');
+                        isPaused = true;
+                        setTimeout(() => {
+                            bubble.classList.remove('paused');
+                            isPaused = false;
+                        }, 3000);
+                    }
+                });
+                return bubble;
+            }
+            startAnimation() {
+                if (this.messages.length === 0) {
+                    setTimeout(() => this.startAnimation(), 2000);
+                    return;
+                }
+                setInterval(() => {
+                    if (this.activeElements.length < 5) {
+                        const randomMessage = this.messages[Math.floor(Math.random() * this.messages.length)];
+                        const bubble = this.createWisdomBubble(randomMessage);
+                        this.container.appendChild(bubble);
+                        this.activeElements.push(bubble);
+                        setTimeout(() => {
+                            if (bubble.parentNode) {
+                                bubble.parentNode.removeChild(bubble);
+                            }
+                            this.activeElements = this.activeElements.filter(el => el !== bubble);
+                        }, 30000);
+                    }
+                }, 3000);
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            new WisdomWall();
+        });
+    </script>
+</body>
+</html>
