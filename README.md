@@ -23,8 +23,8 @@ A magical Telegram bot that lets your messages travel through time, reappearing 
 
 1. **Clone the project**
 ```bash
-git clone <your-repo>
-cd TimeCapsule-部署
+git clone git@github.com:kkter/TimeCapsule-NothingWall.git
+cd TimeCapsule-NothingWall
 ```
 
 2. **Install dependencies**
