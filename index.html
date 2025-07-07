@@ -63,14 +63,8 @@
         .wisdom-bubble:hover { transform: scale(1.05); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
         .wisdom-bubble.paused { animation-play-state: paused !important; z-index: 1000; }
         .time-stamp { font-size: 12px; opacity: 0.7; margin-top: 5px; text-align: right; }
-        .float-left-to-right { animation: floatLR 20s linear infinite; }
         .float-right-to-left { animation: floatRL 22s linear infinite; }
-        .float-diagonal { animation: floatDiagonal 25s linear infinite; }
-        .float-wave { animation: floatWave 18s linear infinite; }
-        @keyframes floatLR { 0% { transform: translateX(-100px) translateY(0px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(-20px); opacity: 0; } }
         @keyframes floatRL { 0% { transform: translateX(calc(100vw + 100px)) translateY(0px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(-100px) translateY(30px); opacity: 0; } }
-        @keyframes floatDiagonal { 0% { transform: translateX(-100px) translateY(100vh); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(-100px); opacity: 0; } }
-        @keyframes floatWave { 0% { transform: translateX(-100px) translateY(0px); opacity: 0; } 10% { opacity: 1; } 25% { transform: translateX(25vw) translateY(-40px); } 50% { transform: translateX(50vw) translateY(20px); } 75% { transform: translateX(75vw) translateY(-30px); } 90% { opacity: 1; } 100% { transform: translateX(calc(100vw + 100px)) translateY(10px); opacity: 0; } }
         .header { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); text-align: center; color: white; z-index: 100; }
         .header h1 { font-size: 2.5rem; margin-bottom: 10px; background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .header p { font-size: 1.1rem; opacity: 0.8; }
@@ -98,6 +92,7 @@
                 this.container = document.getElementById('wisdomContainer');
                 this.messages = [];
                 this.activeElements = [];
+                this.messageIndex = 0; // 用于顺序显示消息
                 this.colorPalette = [
                     'linear-gradient(135deg, rgba(255, 20, 147, 0.3), rgba(255, 105, 180, 0.3))',
                     'linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 165, 0, 0.3))',
@@ -108,9 +103,7 @@
                     'linear-gradient(135deg, rgba(50, 205, 50, 0.3), rgba(124, 252, 0, 0.3))',
                     'linear-gradient(135deg, rgba(255, 20, 147, 0.3), rgba(199, 21, 133, 0.3))'
                 ];
-                this.animationTypes = ['float-left-to-right', 'float-right-to-left', 'float-diagonal', 'float-wave'];
                 this.loadMessages();
-                this.startAnimation();
             }
             async loadMessages() {
                 try {
@@ -125,6 +118,8 @@
                             reactions: 0
                         }));
                     console.log(`Loaded ${this.messages.length} shared messages`);
+                    this.shuffleMessages(); // 在开始动画前打乱消息顺序
+                    this.startAnimation(); // 加载成功后立即开始动画
                 } catch (error) {
                     this.messages = [
                         { message: "当你和另一伴吵架时你们要记得，\n是你们vs问题，\n而不是你vs他。", original_time: "2023-01-12T11:13:25.278397", shared_at: "2023-01-12T18:15:25.278397", reactions: 5 },
@@ -132,7 +127,17 @@
                         { message: "If you cannot decide, the answer is no.", original_time: "2025-06-02T17:13:31.734241", shared_at: "2025-06-02T18:25:25.278397", reactions: 8 }
                     ];
                     console.log('Using sample data');
+                    this.shuffleMessages(); // 对示例数据也打乱顺序
+                    this.startAnimation(); // 使用示例数据也立即开始
                 }
+            }
+            shuffleMessages() {
+                // 使用 Fisher-Yates (aka Knuth) 算法打乱数组
+                for (let i = this.messages.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [this.messages[i], this.messages[j]] = [this.messages[j], this.messages[i]];
+                }
+                console.log("Messages shuffled.");
             }
             getTimeAgo(timestamp) {
                 const now = new Date();
@@ -145,56 +150,56 @@
                 } else if (diffHours > 0) {
                     return `${diffHours} hours ago`;
                 } else {
-                    return 'Just now';
+                    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                    return `${diffMinutes} minutes ago`;
                 }
             }
             createWisdomBubble(messageData) {
                 const bubble = document.createElement('div');
                 const randomColor = this.colorPalette[Math.floor(Math.random() * this.colorPalette.length)];
-                const randomAnimation = this.animationTypes[Math.floor(Math.random() * this.animationTypes.length)];
-                bubble.className = `wisdom-bubble ${randomAnimation}`;
+                bubble.className = `wisdom-bubble float-right-to-left`;
                 bubble.style.background = randomColor;
                 bubble.innerHTML = `
                     <div class="message-text">${messageData.message.replace(/\n/g, '<br>')}</div>
-                    <div class="time-stamp">✨ ${this.getTimeAgo(messageData.original_time)}</div>
+                    <div class="time-stamp">${this.getTimeAgo(messageData.shared_at)}</div>
                 `;
-                const startY = Math.random() * (window.innerHeight - 100);
-                bubble.style.top = startY + 'px';
-                let isPaused = false;
-                bubble.addEventListener('click', () => {
-                    if (isPaused) {
-                        bubble.classList.remove('paused');
-                        isPaused = false;
-                    } else {
-                        bubble.classList.add('paused');
-                        isPaused = true;
-                        setTimeout(() => {
-                            bubble.classList.remove('paused');
-                            isPaused = false;
-                        }, 3000);
-                    }
-                });
+                bubble.style.top = `${Math.random() * 80 + 10}%`;
+                bubble.addEventListener('mouseenter', () => bubble.classList.add('paused'));
+                bubble.addEventListener('mouseleave', () => bubble.classList.remove('paused'));
                 return bubble;
             }
             startAnimation() {
                 if (this.messages.length === 0) {
-                    setTimeout(() => this.startAnimation(), 2000);
+                    console.log("No messages to display yet. Waiting...");
                     return;
                 }
+
+                // 立即创建第一个气泡以消除初始延迟
+                this.createAndManageBubble();
+
+                // 然后设置间隔以创建后续的气泡
                 setInterval(() => {
-                    if (this.activeElements.length < 5) {
-                        const randomMessage = this.messages[Math.floor(Math.random() * this.messages.length)];
-                        const bubble = this.createWisdomBubble(randomMessage);
-                        this.container.appendChild(bubble);
-                        this.activeElements.push(bubble);
-                        setTimeout(() => {
-                            if (bubble.parentNode) {
-                                bubble.parentNode.removeChild(bubble);
-                            }
-                            this.activeElements = this.activeElements.filter(el => el !== bubble);
-                        }, 30000);
-                    }
-                }, 3000);
+                    this.createAndManageBubble();
+                }, 4000); // 每4秒创建一个新气泡
+            }
+
+            createAndManageBubble() {
+                if (this.activeElements.length < 5) { // 限制屏幕上最多5个气泡
+                    const messageToShow = this.messages[this.messageIndex];
+                    const bubble = this.createWisdomBubble(messageToShow);
+                    this.container.appendChild(bubble);
+                    this.activeElements.push(bubble);
+
+                    // 移动到下一个消息，如果到了末尾则循环回开头
+                    this.messageIndex = (this.messageIndex + 1) % this.messages.length;
+
+                    setTimeout(() => {
+                        if (bubble.parentNode) {
+                            bubble.parentNode.removeChild(bubble);
+                        }
+                        this.activeElements = this.activeElements.filter(el => el !== bubble);
+                    }, 22000); // 动画时长为22秒
+                }
             }
         }
         document.addEventListener('DOMContentLoaded', () => {
