@@ -1,6 +1,5 @@
 """
-v2.4.2 与 v2.4.1 没有区别
-修复版本显示不一致：统一为v2.4.2
+v2.4.8
 """
 
 import random
@@ -258,7 +257,7 @@ def handle_message(message):
             parse_mode='Markdown'
         )
             
-    elif message.text == '/help':
+    elif message.text == '/help' or message.text == '/start':
         # Show help
         bot.send_message(
             chat_id=user_id,
