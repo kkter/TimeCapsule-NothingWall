@@ -10,6 +10,8 @@ import os
 import threading
 import http.server
 import socketserver
+import posixpath
+from urllib.parse import unquote, urlsplit
 from datetime import datetime, timedelta
 
 # 配置 Telegram Bot
@@ -22,17 +24,12 @@ if not TELEGRAM_TOKEN:
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# 存储文件 - 优先使用数据目录，回退到脚本目录
+# Store private runtime data in a dedicated directory that is never served.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
-
-# 如果数据目录存在，使用数据目录；否则使用脚本目录
-if os.path.exists(DATA_DIR):
-    CAPSULES_FILE = os.path.join(DATA_DIR, 'time_capsules.json')
-    print(f"📁 Using data directory: {DATA_DIR}")
-else:
-    CAPSULES_FILE = os.path.join(SCRIPT_DIR, 'time_capsules.json')
-    print(f"📁 Using script directory: {SCRIPT_DIR}")
+os.makedirs(DATA_DIR, exist_ok=True)
+CAPSULES_FILE = os.path.join(DATA_DIR, 'time_capsules.json')
+print(f"📁 Using private data directory: {DATA_DIR}")
 
 # HTTP服务器配置
 WEB_PORT = 9000
@@ -49,6 +46,17 @@ def save_capsules(capsules):
     with open(CAPSULES_FILE, 'w', encoding='utf-8') as f:
         json.dump(capsules, f, ensure_ascii=False, indent=2)
 
+def get_public_capsules():
+    """Return an allowlisted, anonymous view of explicitly shared capsules."""
+    return [
+        {
+            'message': capsule.get('message', ''),
+            'created_at': capsule.get('created_at')
+        }
+        for capsule in load_capsules()
+        if capsule.get('shared') is True
+    ]
+
 # 添加HTTP服务器类
 class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -62,24 +70,30 @@ class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Max-Age', '86400')
     
     def do_GET(self):
-        # 处理 time_capsules.json 请求
-        if self.path == '/time_capsules.json' or self.path.startswith('/time_capsules.json'):
+        request_path = unquote(urlsplit(self.path).path)
+        request_path = '/' + posixpath.normpath(request_path).lstrip('/')
+
+        # Serve only an allowlisted public projection, never the runtime file.
+        if request_path == '/time_capsules.json':
             try:
-                capsules = load_capsules()
+                capsules = get_public_capsules()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.add_cors_headers()
                 self.end_headers()
                 json_data = json.dumps(capsules, ensure_ascii=False, indent=2)
                 self.wfile.write(json_data.encode('utf-8'))
-                print(f"📤 Served {len(capsules)} capsules via HTTP")
+                print(f"📤 Served {len(capsules)} shared capsules via HTTP")
                 return
             except Exception as e:
                 print(f"❌ Error serving capsules: {e}")
                 self.send_response(500)
-                self.add_cors_headers()
                 self.end_headers()
                 return
+
+        # SimpleHTTPRequestHandler would otherwise expose the mounted data folder.
+        if request_path == '/data' or request_path.startswith('/data/'):
+            self.send_error(404)
+            return
         
         # 处理预检请求
         if self.path.endswith('OPTIONS'):
@@ -149,10 +163,13 @@ def add_capsule(message, user_id):
         bot.send_message(chat_id=user_id, 
                         text="⏰ Time capsule buried and will open at an unknown time!")
 
-def ask_for_sharing(user_id, message, original_time):
+def ask_for_sharing(user_id, capsule_index):
     """Ask user if they want to share the opened message"""
     markup = telebot.types.InlineKeyboardMarkup()
-    share_btn = telebot.types.InlineKeyboardButton("👊🏼 Share with the world", callback_data=f"share_{len(load_capsules())}")
+    share_btn = telebot.types.InlineKeyboardButton(
+        "👊🏼 Share with the world",
+        callback_data=f"share_{capsule_index}"
+    )
     keep_btn = telebot.types.InlineKeyboardButton("💔 Keep private", callback_data="keep_private")
     markup.add(share_btn)
     markup.add(keep_btn)
@@ -194,7 +211,7 @@ def check_and_send_capsules():
                 capsule['sent'] = True
                 
                 # Ask if user wants to share
-                ask_for_sharing(capsule['user_id'], capsule['message'], capsule['created_at'])
+                ask_for_sharing(capsule['user_id'], i)
     
     save_capsules(capsules)
 
@@ -202,14 +219,22 @@ def check_and_send_capsules():
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     if call.data.startswith("share_"):
-        # Find the message and mark as shared (不再写入shared_messages.json)
         capsules = load_capsules()
-        capsule_index = int(call.data.split("_")[1]) - 1
+        try:
+            capsule_index = int(call.data.split("_", 1)[1])
+        except (IndexError, ValueError):
+            bot.answer_callback_query(call.id, "Invalid sharing request.", show_alert=True)
+            return
         
         if 0 <= capsule_index < len(capsules):
             capsule = capsules[capsule_index]
-            capsule['shared'] = True  # 只标记为shared，不单独存储
+            if capsule.get('user_id') != call.from_user.id or not capsule.get('sent'):
+                bot.answer_callback_query(call.id, "This capsule cannot be shared by this account.", show_alert=True)
+                return
+
+            capsule['shared'] = True
             save_capsules(capsules)
+            bot.answer_callback_query(call.id, "Capsule shared anonymously.")
             
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -230,8 +255,7 @@ def handle_callback(call):
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    print(f"Message from {username} ({user_id}): {message.text}")
+    print("Message received from a Telegram user")
     
     if message.text == '/status':
         # Show capsule status
