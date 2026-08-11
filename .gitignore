@@ -1,5 +1,13 @@
 
-# Ignore log files directory
-logs/
 .env
 .DS_Store
+__pycache__/
+*.py[cod]
+
+# Runtime data can contain private Telegram messages and identifiers.
+data/*
+!data/.gitkeep
+
+# Local-only logs and backups.
+logs/
+backups/

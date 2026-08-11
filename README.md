@@ -1,300 +1,125 @@
-# 🕰️ Time Capsule Bot - Nothing Wall
+# Time Capsule Bot & Nothing Wall
 
-A magical Telegram bot that lets your messages travel through time, reappearing at an unknown moment in the future.
+A Telegram bot that returns a message to its author at a randomly selected future date. After a capsule opens, its author can choose whether to publish the message anonymously on the companion web wall.
 
-## ✨ Features
+[Live wall](https://nothingwall.com) · [Telegram bot](https://t.me/MoonTimeCapsuleBot)
 
-- 📮 **Time Capsules**: Send any message and it will be returned to you at a random time (30 days-3 years)
-- 🌍 **Anonymous Sharing**: Choose to share your opened time capsules anonymously on the public wisdom wall
-- 🎨 **Beautiful Web Display**: Built-in "Nothing Wall" webpage showcasing all shared time capsules
-- 🔄 **Auto-Restart**: Automatically restarts on network errors to ensure stable service
-- 🐳 **Docker Support**: Complete Docker deployment solution
-- 🌐 **Built-in Web Server**: Hosts static pages with CORS support
+## What this project demonstrates
 
-## 🚀 Quick Start
+- A long-running Python service with Telegram command and callback handling
+- Delayed delivery with persistent JSON storage
+- An anonymous, opt-in public publishing flow
+- A lightweight responsive web experience served by the application
+- Docker Compose deployment and local data persistence
 
-### Prerequisites
+## Privacy model
+
+Capsules are private by default. The runtime record contains the Telegram user ID required to return a capsule to its author, so `data/time_capsules.json` is deliberately excluded from Git and Docker build contexts.
+
+The public `/time_capsules.json` endpoint:
+
+- includes only records whose `shared` flag is explicitly `true`;
+- returns an allowlist of public fields (`message` and `created_at`);
+- never returns Telegram user IDs or delivery metadata; and
+- cannot be bypassed through the static `/data/` path.
+
+The sharing callback also verifies that the Telegram account accepting publication owns the selected capsule. Local backups are written to the ignored `backups/` directory and are restricted to the current operating-system user.
+
+> Important: if private data was committed before these controls were added, deleting it from the current branch does not remove it from earlier Git history. Repository-history cleanup should be performed separately after preserving a backup and coordinating a force-push.
+
+## Quick start
+
+### Requirements
 
 - Python 3.11+
-- Telegram Bot Token
-- Docker (optional)
+- A Telegram bot token
+- Docker and Docker Compose (optional)
 
-### Local Development
+### Local development
 
-1. **Clone the project**
 ```bash
-git clone git@github.com:kkter/TimeCapsule-NothingWall.git
+git clone https://github.com/kkter/TimeCapsule-NothingWall.git
 cd TimeCapsule-NothingWall
-```
-
-2. **Install dependencies**
-```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-3. **Set environment variables**
-```bash
-export TELEGRAM_BOT_TOKEN="your_bot_token_here"
-export ADMIN_CHAT_ID="your_chat_id_here"  # Optional
-```
-
-4. **Run the bot**
-```bash
+export TELEGRAM_BOT_TOKEN="your_bot_token"
+export ADMIN_CHAT_ID="your_chat_id" # optional test mode
 python time_capsule.py
 ```
 
-### Docker Deployment
+The wall is available at `http://localhost:9000`.
 
-1. **Create .env file**
+### Docker Compose
+
+Create a local `.env` file from the committed template, then replace the values:
+
 ```bash
-echo "TELEGRAM_BOT_TOKEN=your_bot_token_here" > .env
-echo "ADMIN_CHAT_ID=your_chat_id_here" >> .env
+cp .env.example .env
 ```
 
-2. **Run deployment script**
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
+The Compose file expects an existing external Docker network:
 
-Or manually:
-```bash
-docker-compose up -d --build
-```
-
-## 🎯 Usage
-
-### Bot Commands
-
-- **Send any message** - Create a time capsule
-- `/status` - Check your time capsule statistics
-- `/wall` - Get the public wisdom wall link
-- `/help` - Show help information
-
-### Web Access
-
-After startup, visit:
-- Local: `http://localhost:9000`
-- Production: `https://your-domain.com`
-
-## 📂 Project Structure
-
-```
-TimeCapsule-部署/
-├── time_capsule.py           # Main application file
-├── index.html               # Nothing Wall webpage
-├── requirements.txt         # Python dependencies
-├── Dockerfile              # Docker configuration
-├── docker-compose.yml      # Docker Compose configuration
-├── deploy.sh              # Deployment script
-├── auto_backup_timecapsule.sh  # Auto backup script
-├── README.md              # Project documentation
-├── sitemap.xml           # SEO sitemap
-├── robots.txt           # SEO robots file
-├── favicon.ico          # Website favicon
-├── favicon-32x32.png    # Website favicon
-├── apple-touch-icon.png # Apple touch icon
-└── data/               # Data directory (created at runtime)
-    └── time_capsules.json  # Time capsule data
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-- `TELEGRAM_BOT_TOKEN`: Telegram bot token (required)
-- `ADMIN_CHAT_ID`: Admin user ID (optional, enables quick test mode)
-
-### Time Configuration
-
-The system automatically selects mode based on user identity:
-
-```python
-# Admin mode: 1-3 minutes (for quick testing and content generation)
-if user_id == ADMIN_CHAT_ID:
-    delay_minutes = random.randint(1, 3)
-
-# User mode: 30 days to 3 years
-else:
-    delay_days = random.randint(30, 1095)
-```
-
-### Getting Your Chat ID
-
-Send `/start` to [@userinfobot](https://t.me/userinfobot) to get your Chat ID.
-
-### Web Server Port
-
-Default port is 9000, can be modified in the code:
-```python
-WEB_PORT = 9000
-```
-
-## 📊 Data Storage
-
-The project uses JSON files for data storage:
-
-- **time_capsules.json**: Stores all time capsules with metadata
-
-Data structure example:
-```json
-{
-  "user_id": 123456789,
-  "message": "Hello, future me!",
-  "created_at": "2025-01-15T10:30:00",
-  "send_at": "2025-01-15T10:33:00",
-  "sent": false,
-  "shared": false
-}
-```
-
-## 🎨 Nothing Wall Features
-
-- 🌌 **Cosmic Theme**: Starry background with beautiful gradient effects
-- 💫 **Dynamic Bubbles**: 4 different floating animations
-- 🎯 **Interactive Elements**: Click bubbles to pause for 3 seconds
-- 📱 **Responsive Design**: Supports both mobile and desktop
-- 🌈 **Random Colors**: 8 gradient color schemes randomly assigned
-
-## 🚀 Deployment Guide
-
-### Prerequisites for Production
-
-1. **Create Docker network** (if not exists):
 ```bash
 docker network create app_network
+docker compose up -d --build
 ```
 
-2. **Set up environment variables**:
-```bash
-# Create .env file with your tokens
-TELEGRAM_BOT_TOKEN=your_actual_bot_token
-ADMIN_CHAT_ID=your_actual_chat_id
+## Bot commands
+
+| Command | Purpose |
+| --- | --- |
+| Send a message | Create a private time capsule |
+| `/status` | Show capsule counts for the current user |
+| `/wall` | Open the public Nothing Wall |
+| `/help` | Show usage help |
+
+Non-admin capsules reopen after a randomly selected interval from 30 days to 3 years. Setting `ADMIN_CHAT_ID` enables a 1–3 minute test interval for that account.
+
+## Architecture
+
+```text
+Telegram user
+    │ messages and sharing choice
+    ▼
+Telegram Bot API ──► time_capsule.py ──► data/time_capsules.json
+                           │                     (private, ignored)
+                           │ allowlisted shared records only
+                           ▼
+                    /time_capsules.json ──► index.html
 ```
 
-### Regular Updates
+## Project structure
 
-**Recommended deployment process:**
-
-```bash
-# Fetch latest changes
-git fetch origin main
-git reset --hard origin/main
-
-# Deploy
-./deploy.sh
+```text
+.
+├── time_capsule.py              # Telegram bot, scheduler and HTTP server
+├── index.html                   # Public Nothing Wall UI
+├── data/                        # Private runtime data (ignored)
+├── auto_backup_timecapsule.sh   # Local-only backup helper
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
+└── requirements.txt
 ```
 
-**Alternative step-by-step:**
+## Local backup
 
-```bash
-# Stop containers
-docker-compose down
-
-# Rebuild and start
-docker-compose up -d --build
-
-# Check logs
-docker-compose logs -f
-```
-
-## 🔄 Auto Backup
-
-The project includes an automatic backup system for data files.
-
-### Setup Cron Jobs
-
-```bash
-# Edit crontab
-crontab -e
-
-# Commit changes every hour
-0 * * * * cd /path/to/TimeCapsule && ./auto_backup_timecapsule.sh >> logs/cron_commit_job.log 2>&1
-
-# Push to GitHub daily at 23:05
-5 23 * * * cd /path/to/TimeCapsule && ./auto_backup_timecapsule.sh push >> logs/cron_push_job.log 2>&1
-```
-
-## 🛠️ Version History
-
-- **v2.4.7**: Modified Docker network configuration to join existing app_network
-- **v2.4.6**: Fixed Git workflow and improved auto backup script
-- **v2.4.5**: Added favicon and SEO files to Docker build
-- **v2.4.4**: Simplified favicon paths
-- **v2.4.3**: Added SEO optimization and semantic HTML
-- **v2.4.2**: Fixed version display consistency
-- **v2.4.1**: Added analytics tracking
-- **v2.4.0**: Removed redundant shared_messages.json logic
-- **v2.2.2**: Built-in web server with CORS support
-- **v2.2.1**: Network error handling and auto-restart
-- **v2.2.0**: Improved user experience and message formatting
-- **v2.1.0**: Added sharing functionality and wisdom wall
-- **v2.0.0**: User management and command support
-- **v1.0.0**: Basic time capsule functionality
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-1. **Bot not responding**
-   - Check if `TELEGRAM_BOT_TOKEN` is correctly set
-   - Review console log output
-
-2. **Web page inaccessible**
-   - Confirm port 9000 is not occupied
-   - Check firewall settings
-
-3. **Docker deployment failure**
-   - Ensure Docker and Docker Compose are installed
-   - Check if `.env` file exists
-   - Verify `app_network` exists: `docker network ls`
-
-### Viewing Logs
+Run:
 
 ```bash
-# Docker logs
-docker-compose logs -f
-
-# Direct execution logs
-# Check console output
+./auto_backup_timecapsule.sh
 ```
 
-## 🌍 Live Demo
+This copies the runtime file to `backups/`. It does not run Git commands or upload capsule data.
 
-Visit the live Nothing Wall: [https://nothingwall.com](https://nothingwall.com)
+## Security notes
 
-Try the Telegram bot: [@MoonTimeCapsuleBot](https://t.me/MoonTimeCapsuleBot)
+- Keep `.env`, `data/`, `backups/` and logs outside version control.
+- Restrict filesystem and server access to private runtime data.
+- Use HTTPS and a reverse proxy for public deployments.
+- Treat the included JSON store as a small-project design; a production service should add database transactions, encryption at rest, retention controls and user-directed deletion.
 
-## 🤝 Contributing
+## Disclaimer
 
-Contributions are welcome! Please feel free to submit Issues and Pull Requests.
-
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-MIT License
-
-## 🙏 Acknowledgments
-
-Thanks to all the users and contributors who make this project possible! Let's leave beautiful footprints in the river of time together.
-
----
-
-*"Time never speaks, but answers all questions." - From a Time Capsule*
-
----
-
-## 📬 Contact
-
-For questions or support, please open an issue on GitHub or contact the project maintainer.
-
----
-
-**Made with ❤️ for time travelers around the world**
+This is a personal project and demonstration service. Operators are responsible for protecting stored content and complying with applicable privacy requirements.
