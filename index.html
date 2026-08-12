@@ -62,6 +62,7 @@
         }
         .wisdom-bubble:hover { transform: scale(1.05); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
         .wisdom-bubble.paused { animation-play-state: paused !important; z-index: 1000; }
+        .message-text { white-space: pre-line; }
         .time-stamp { font-size: 12px; opacity: 0.7; margin-top: 5px; text-align: right; }
         .float-right-to-left { animation: floatRL 22s linear infinite; }
         @keyframes floatRL { 0% { transform: translateX(calc(100vw + 100px)) translateY(0px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(-100px) translateY(30px); opacity: 0; } }
@@ -74,7 +75,6 @@
             .header h1 { font-size: 1.6rem; } 
         }
     </style>
-    <script defer src="https://umami.520353.xyz/demo.js" data-website-id="9a625531-c851-4b25-b66b-bd752211f59e"></script>
 </head>
 <body>
     <div class="stars"></div>
@@ -110,7 +110,6 @@
                     const response = await fetch('time_capsules.json');
                     const allCapsules = await response.json();
                     this.messages = allCapsules
-                        .filter(capsule => capsule.shared === true)
                         .map(capsule => ({
                             message: capsule.message,
                             original_time: capsule.created_at,
@@ -159,10 +158,13 @@
                 const randomColor = this.colorPalette[Math.floor(Math.random() * this.colorPalette.length)];
                 bubble.className = `wisdom-bubble float-right-to-left`;
                 bubble.style.background = randomColor;
-                bubble.innerHTML = `
-                    <div class="message-text">${messageData.message.replace(/\n/g, '<br>')}</div>
-                    <div class="time-stamp">${this.getTimeAgo(messageData.shared_at)}</div>
-                `;
+                const messageElement = document.createElement('div');
+                messageElement.className = 'message-text';
+                messageElement.textContent = String(messageData.message || '');
+                const timestampElement = document.createElement('div');
+                timestampElement.className = 'time-stamp';
+                timestampElement.textContent = this.getTimeAgo(messageData.shared_at);
+                bubble.append(messageElement, timestampElement);
                 bubble.style.top = `${Math.random() * 80 + 10}%`;
                 bubble.addEventListener('mouseenter', () => bubble.classList.add('paused'));
                 bubble.addEventListener('mouseleave', () => bubble.classList.remove('paused'));

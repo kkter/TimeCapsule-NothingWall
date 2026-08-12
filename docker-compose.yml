@@ -3,16 +3,31 @@ services:
     build: .
     container_name: time-capsule-bot
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
+      ADMIN_CHAT_ID: "${ADMIN_CHAT_ID:-0}"
+      DATA_DIR: /app/data
+      WEB_PORT: "9000"
+      WALL_URL: "https://capsule.520353.xyz"
+      CHECK_INTERVAL_SECONDS: "30"
+      BACKUP_RETENTION: "20"
     ports:
-      - "9000:9000"
+      - "${CAPSULE_BIND_ADDRESS:-127.0.0.1}:${CAPSULE_PORT:-5102}:9000"
     volumes:
       - ./data:/app/data
-    networks:
-      - app_network # 1. 将服务连接到 app_network
-
-networks:
-  app_network: # 2. 声明 app_network
-    external: true # 3. 关键：将其标记为“外部网络”
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/healthz', timeout=5)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

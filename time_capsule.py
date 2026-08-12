@@ -1,338 +1,435 @@
-"""
-v2.4.8
-"""
+"""Telegram time-capsule bot and anonymous public wall."""
 
-import random
-import time
-import telebot
+from __future__ import annotations
+
+import http.server
 import json
 import os
-import threading
-import http.server
-import socketserver
 import posixpath
+import random
+import shutil
+import tempfile
+import threading
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
-from datetime import datetime, timedelta
 
-# 配置 Telegram Bot
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0'))
+import telebot
 
-if not TELEGRAM_TOKEN:
-    print("Error: Please set TELEGRAM_BOT_TOKEN environment variable")
-    exit(1)
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+VERSION = "2.5.0"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("DATA_DIR", SCRIPT_DIR / "data"))
+CAPSULES_FILE = Path(os.getenv("CAPSULES_FILE", DATA_DIR / "time_capsules.json"))
+BACKUP_DIR = Path(os.getenv("BACKUP_DIR", DATA_DIR / "backups"))
+BACKUP_RETENTION = max(1, int(os.getenv("BACKUP_RETENTION", "20")))
+WEB_PORT = int(os.getenv("WEB_PORT", "9000"))
+CHECK_INTERVAL_SECONDS = max(5, int(os.getenv("CHECK_INTERVAL_SECONDS", "30")))
+WALL_URL = os.getenv("WALL_URL", "https://capsule.520353.xyz")
+PUBLIC_FILES = {
+    "/index.html",
+    "/favicon.ico",
+    "/favicon-32x32.png",
+    "/apple-touch-icon.png",
+    "/robots.txt",
+    "/sitemap.xml",
+}
+DATA_LOCK = threading.RLock()
+bot: telebot.TeleBot | None = None
 
-# Store private runtime data in a dedicated directory that is never served.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
-os.makedirs(DATA_DIR, exist_ok=True)
-CAPSULES_FILE = os.path.join(DATA_DIR, 'time_capsules.json')
-print(f"📁 Using private data directory: {DATA_DIR}")
 
-# HTTP服务器配置
-WEB_PORT = 9000
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
-def load_capsules():
-    """Load time capsules"""
-    if os.path.exists(CAPSULES_FILE):
-        with open(CAPSULES_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return []
 
-def save_capsules(capsules):
-    """Save time capsules"""
-    with open(CAPSULES_FILE, 'w', encoding='utf-8') as f:
-        json.dump(capsules, f, ensure_ascii=False, indent=2)
+def _parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.astimezone()
+    return parsed
 
-def get_public_capsules():
-    """Return an allowlisted, anonymous view of explicitly shared capsules."""
+
+def _load_unlocked() -> list[dict]:
+    if not CAPSULES_FILE.exists():
+        return []
+    with CAPSULES_FILE.open("r", encoding="utf-8") as handle:
+        capsules = json.load(handle)
+    if not isinstance(capsules, list) or not all(isinstance(item, dict) for item in capsules):
+        raise ValueError("capsule store must contain a JSON array of objects")
+    return capsules
+
+
+def _backup_existing_unlocked() -> None:
+    if not CAPSULES_FILE.exists():
+        return
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    suffix = utc_now().strftime("%Y%m%dT%H%M%S.%fZ")
+    destination = BACKUP_DIR / f"time_capsules_{suffix}.json"
+    shutil.copyfile(CAPSULES_FILE, destination)
+    destination.chmod(0o600)
+    backups = sorted(BACKUP_DIR.glob("time_capsules_*.json"), reverse=True)
+    for old_backup in backups[BACKUP_RETENTION:]:
+        old_backup.unlink(missing_ok=True)
+
+
+def _save_unlocked(capsules: list[dict]) -> None:
+    CAPSULES_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _backup_existing_unlocked()
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{CAPSULES_FILE.name}.", dir=CAPSULES_FILE.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(capsules, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.chmod(0o600)
+        os.replace(temporary, CAPSULES_FILE)
+        directory_descriptor = os.open(CAPSULES_FILE.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def load_capsules() -> list[dict]:
+    with DATA_LOCK:
+        return _load_unlocked()
+
+
+def save_capsules(capsules: list[dict]) -> None:
+    with DATA_LOCK:
+        _save_unlocked(capsules)
+
+
+def get_public_capsules() -> list[dict]:
+    """Return only allowlisted anonymous fields from explicitly shared capsules."""
     return [
-        {
-            'message': capsule.get('message', ''),
-            'created_at': capsule.get('created_at')
-        }
+        {"message": capsule.get("message", ""), "created_at": capsule.get("created_at")}
         for capsule in load_capsules()
-        if capsule.get('shared') is True
+        if capsule.get("shared") is True
     ]
 
-# 添加HTTP服务器类
-class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        # 设置服务器根目录为脚本所在目录
-        super().__init__(*args, directory=SCRIPT_DIR, **kwargs)
-    
-    def add_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Access-Control-Max-Age', '86400')
-    
-    def do_GET(self):
-        request_path = unquote(urlsplit(self.path).path)
-        request_path = '/' + posixpath.normpath(request_path).lstrip('/')
 
-        # Serve only an allowlisted public projection, never the runtime file.
-        if request_path == '/time_capsules.json':
-            try:
-                capsules = get_public_capsules()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json; charset=utf-8')
-                self.end_headers()
-                json_data = json.dumps(capsules, ensure_ascii=False, indent=2)
-                self.wfile.write(json_data.encode('utf-8'))
-                print(f"📤 Served {len(capsules)} shared capsules via HTTP")
-                return
-            except Exception as e:
-                print(f"❌ Error serving capsules: {e}")
-                self.send_response(500)
-                self.end_headers()
-                return
+def _require_bot() -> telebot.TeleBot:
+    if bot is None:
+        raise RuntimeError("Telegram bot is not initialized")
+    return bot
 
-        # SimpleHTTPRequestHandler would otherwise expose the mounted data folder.
-        if request_path == '/data' or request_path.startswith('/data/'):
-            self.send_error(404)
-            return
-        
-        # 处理预检请求
-        if self.path.endswith('OPTIONS'):
-            self.send_response(200)
-            self.add_cors_headers()
-            self.end_headers()
-            return
-        
-        # 默认页面重定向到index.html
-        if self.path == '/':
-            self.path = '/index.html'
-        
-        # 其他请求交给父类处理
-        super().do_GET()
-    
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.add_cors_headers()
-        self.end_headers()
-    
-    def end_headers(self):
-        self.add_cors_headers()
-        super().end_headers()
 
-def start_web_server():
-    """启动HTTP服务器"""
-    try:
-        with socketserver.TCPServer(("", WEB_PORT), CORSHTTPRequestHandler) as httpd:
-            print(f"🌐 Web server running on port {WEB_PORT}")
-            print(f"📁 Serving files from: {SCRIPT_DIR}")
-            print(f"🔗 Access at: http://localhost:{WEB_PORT}")
-            httpd.serve_forever()
-    except Exception as e:
-        print(f"❌ Web server error: {e}")
-
-def add_capsule(message, user_id):
-    """Add new time capsule"""
-    capsules = load_capsules()
-    
-    if user_id == ADMIN_CHAT_ID:
-        # 管理模式：1-3分钟
-        delay_minutes = random.randint(1, 3)
-        send_time = datetime.now() + timedelta(minutes=delay_minutes)
-        print(f"👑 ADMIN MODE: Capsule will open in {delay_minutes} minutes")
+def add_capsule(message: str, user_id: int, admin_chat_id: int) -> dict:
+    if user_id == admin_chat_id and admin_chat_id != 0:
+        delay = timedelta(minutes=random.randint(1, 3))
+        confirmation = "👑 Admin time capsule buried! It will open in a few minutes."
     else:
-        # 用户模式：30天-3年
-        delay_days = random.randint(30, 1095)
-        send_time = datetime.now() + timedelta(days=delay_days)
-        print(f"⏰ USER MODE: Capsule will open in {delay_days} days")
-    
+        delay = timedelta(days=random.randint(30, 1095))
+        confirmation = "⏰ Time capsule buried and will open at an unknown time!"
+    created_at = utc_now()
     capsule = {
-        'user_id': user_id,
-        'message': message,
-        'created_at': datetime.now().isoformat(),
-        'send_at': send_time.isoformat(),
-        'sent': False,
-        'shared': False
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "message": message,
+        "created_at": created_at.isoformat(),
+        "send_at": (created_at + delay).isoformat(),
+        "sent": False,
+        "shared": False,
     }
-    
-    capsules.append(capsule)
-    save_capsules(capsules)
-    
-    if user_id == ADMIN_CHAT_ID:
-        bot.send_message(chat_id=user_id, 
-                        text=f"👑 Admin time capsule buried! Will open in {delay_minutes} minutes.")
-    else:
-        bot.send_message(chat_id=user_id, 
-                        text="⏰ Time capsule buried and will open at an unknown time!")
+    with DATA_LOCK:
+        capsules = _load_unlocked()
+        capsules.append(capsule)
+        _save_unlocked(capsules)
+    _require_bot().send_message(chat_id=user_id, text=confirmation)
+    return capsule
 
-def ask_for_sharing(user_id, capsule_index):
-    """Ask user if they want to share the opened message"""
+
+def ask_for_sharing(user_id: int, capsule_id: str) -> None:
     markup = telebot.types.InlineKeyboardMarkup()
-    share_btn = telebot.types.InlineKeyboardButton(
-        "👊🏼 Share with the world",
-        callback_data=f"share_{capsule_index}"
+    markup.add(
+        telebot.types.InlineKeyboardButton(
+            "👊🏼 Share with the world", callback_data=f"share:{capsule_id}"
+        )
     )
-    keep_btn = telebot.types.InlineKeyboardButton("💔 Keep private", callback_data="keep_private")
-    markup.add(share_btn)
-    markup.add(keep_btn)
-    
-    bot.send_message(
+    markup.add(
+        telebot.types.InlineKeyboardButton("💔 Keep private", callback_data="keep_private")
+    )
+    _require_bot().send_message(
         chat_id=user_id,
-        text="💫 Would you like to share this Time Capsule with others?\n\n"
-             "Your Time Capsule will appear anonymously on our public [Time Capsule Wall](https://nothingwall.com).\n"
-             "Leave your mark on this world.",
+        text=(
+            "💫 Would you like to share this Time Capsule with others?\n\n"
+            f"It will appear anonymously on the public [Time Capsule Wall]({WALL_URL})."
+        ),
         reply_markup=markup,
-        parse_mode='Markdown'
+        parse_mode="Markdown",
     )
 
-def check_and_send_capsules():
-    """Check and send due time capsules"""
-    capsules = load_capsules()
-    now = datetime.now()
-    
-    for i, capsule in enumerate(capsules):
-        if not capsule['sent']:
-            send_time = datetime.fromisoformat(capsule['send_at'])
-            if now >= send_time:
-                # Send time capsule
-                created_date = datetime.fromisoformat(capsule['created_at'])
-                
-                # 计算相对时间（重用现有逻辑）
-                time_ago = now - created_date
-                if time_ago.days > 0:
-                    time_str = f"{time_ago.days} days ago"
-                else:
-                    hours = time_ago.seconds // 3600
-                    time_str = f"{hours} hours ago"
-                
-                bot.send_message(
-                    chat_id=capsule['user_id'], 
-                    text=f"📮 Time capsule opened!\n\nThis is a message from you {time_str}:\n\n「{capsule['message']}」"
-                )
-                
-                capsule['sent'] = True
-                
-                # Ask if user wants to share
-                ask_for_sharing(capsule['user_id'], i)
-    
-    save_capsules(capsules)
 
-# Handle callback queries for sharing
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    if call.data.startswith("share_"):
-        capsules = load_capsules()
-        try:
-            capsule_index = int(call.data.split("_", 1)[1])
-        except (IndexError, ValueError):
-            bot.answer_callback_query(call.id, "Invalid sharing request.", show_alert=True)
-            return
-        
-        if 0 <= capsule_index < len(capsules):
-            capsule = capsules[capsule_index]
-            if capsule.get('user_id') != call.from_user.id or not capsule.get('sent'):
-                bot.answer_callback_query(call.id, "This capsule cannot be shared by this account.", show_alert=True)
+def _claim_due_capsule() -> dict | None:
+    now = utc_now()
+    with DATA_LOCK:
+        capsules = _load_unlocked()
+        changed = False
+        for capsule in capsules:
+            if capsule.get("sent"):
+                continue
+            try:
+                due = _parse_timestamp(str(capsule["send_at"])) <= now
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not due:
+                continue
+            claimed_at = capsule.get("delivery_claimed_at")
+            if claimed_at:
+                try:
+                    if now - _parse_timestamp(str(claimed_at)) < timedelta(minutes=5):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            if not capsule.get("id"):
+                capsule["id"] = str(uuid.uuid4())
+            capsule["delivery_claimed_at"] = now.isoformat()
+            changed = True
+            candidate = dict(capsule)
+            break
+        else:
+            candidate = None
+        if changed:
+            _save_unlocked(capsules)
+        return candidate
+
+
+def _finish_delivery(capsule_id: str, sent: bool) -> None:
+    with DATA_LOCK:
+        capsules = _load_unlocked()
+        for capsule in capsules:
+            if capsule.get("id") == capsule_id:
+                capsule.pop("delivery_claimed_at", None)
+                if sent:
+                    capsule["sent"] = True
+                    capsule["sent_at"] = utc_now().isoformat()
+                _save_unlocked(capsules)
                 return
 
-            capsule['shared'] = True
-            save_capsules(capsules)
-            bot.answer_callback_query(call.id, "Capsule shared anonymously.")
-            
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="✨ Thank you for sharing your Time Capsule with the world!\n\n"
-                     "The World is expecting you!"
+
+def check_and_send_capsules() -> int:
+    delivered = 0
+    while candidate := _claim_due_capsule():
+        capsule_id = str(candidate["id"])
+        try:
+            now = utc_now()
+            created_at = _parse_timestamp(str(candidate["created_at"]))
+            elapsed = now - created_at
+            time_text = f"{elapsed.days} days ago" if elapsed.days else f"{elapsed.seconds // 3600} hours ago"
+            _require_bot().send_message(
+                chat_id=candidate["user_id"],
+                text=(
+                    "📮 Time capsule opened!\n\n"
+                    f"This is a message from you {time_text}:\n\n「{candidate['message']}」"
+                ),
             )
-        
-    elif call.data == "keep_private":
-        bot.edit_message_text(
+            _finish_delivery(capsule_id, True)
+            delivered += 1
+            try:
+                ask_for_sharing(int(candidate["user_id"]), capsule_id)
+            except Exception as exc:
+                print(f"Share prompt could not be sent for capsule {capsule_id}: {exc}")
+        except Exception:
+            _finish_delivery(capsule_id, False)
+            raise
+    return delivered
+
+
+def handle_callback(call) -> None:
+    telegram_bot = _require_bot()
+    if call.data.startswith("share:") or call.data.startswith("share_"):
+        reference = call.data.split(":" if ":" in call.data else "_", 1)[1]
+        with DATA_LOCK:
+            capsules = _load_unlocked()
+            capsule = None
+            if reference.isdigit():
+                index = int(reference)
+                if 0 <= index < len(capsules):
+                    capsule = capsules[index]
+            else:
+                capsule = next((item for item in capsules if item.get("id") == reference), None)
+            if (
+                capsule is None
+                or capsule.get("user_id") != call.from_user.id
+                or not capsule.get("sent")
+            ):
+                allowed = False
+            else:
+                capsule["shared"] = True
+                _save_unlocked(capsules)
+                allowed = True
+        if not allowed:
+            telegram_bot.answer_callback_query(
+                call.id, "This capsule cannot be shared by this account.", show_alert=True
+            )
+            return
+        telegram_bot.answer_callback_query(call.id, "Capsule shared anonymously.")
+        telegram_bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="🔒 Your message remains private.\n\n"
-                 "Sometimes the most precious thoughts are meant for our eyes only."
+            text="✨ Thank you for sharing your Time Capsule with the world!",
+        )
+    elif call.data == "keep_private":
+        telegram_bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🔒 Your message remains private.",
         )
 
-# Listen to all messages
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
+
+def handle_message(message, admin_chat_id: int) -> None:
+    telegram_bot = _require_bot()
     user_id = message.from_user.id
-    print("Message received from a Telegram user")
-    
-    if message.text == '/status':
-        # Show capsule status
-        capsules = load_capsules()
-        user_capsules = [c for c in capsules if c['user_id'] == user_id]
-        pending = len([c for c in user_capsules if not c['sent']])
-        sent = len([c for c in user_capsules if c['sent']])
-        shared = len([c for c in user_capsules if c.get('shared', False)])
-        
-        bot.send_message(
-            chat_id=user_id, 
-            text=f"💡 Your capsules:\n⏳ Waiting: {pending}\n✅ Opened: {sent}\n👊🏼 Shared: {shared}"
-        )
-
-    elif message.text == '/wall':
-        # Show Time Capsule Wall link
-        bot.send_message(
+    text = (message.text or "").strip()
+    if text == "/status":
+        capsules = [item for item in load_capsules() if item.get("user_id") == user_id]
+        pending = sum(not item.get("sent") for item in capsules)
+        opened = sum(bool(item.get("sent")) for item in capsules)
+        shared = sum(bool(item.get("shared")) for item in capsules)
+        telegram_bot.send_message(
             chat_id=user_id,
-            text="💫 Nothing Wall\n\n"
-                 "Visit our Nothing Wall to read shared Time Capsules from others:\n\n"
-                 "[Nothing Wall ● Time Capsules](https://nothingwall.com)\n\n"
-                 "Experience the wisdom floating through time and space!",
-            parse_mode='Markdown'
+            text=f"💡 Your capsules:\n⏳ Waiting: {pending}\n✅ Opened: {opened}\n👊🏼 Shared: {shared}",
         )
-            
-    elif message.text == '/help' or message.text == '/start':
-        # Show help
-        bot.send_message(
+    elif text == "/wall":
+        telegram_bot.send_message(
             chat_id=user_id,
-            text="🕰️ Welcome to Time Capsule Bot!\n\n"
-                 "Simply send any message and it will be buried as a Time Capsule.\n"
-                 "It will be returned to you at an unknown time.!\n\n"
-                 "Commands:\n"
-                 "⌛️ /status - Check your Time Capsules\n"
-                 "💫 /wall - Read shared Time Capsules from others\n"
-                 "❓ /help - Show this help\n\n"
-                 "When your Time Capsule opens,\n"
-                 "you can choose to share it with the World anonymously! "
+            text=f"💫 Nothing Wall\n\n[Read shared Time Capsules]({WALL_URL})",
+            parse_mode="Markdown",
         )
-    else:
-        # Create time capsule for any other message
-        add_capsule(message.text, user_id)
+    elif text in {"/help", "/start"}:
+        telegram_bot.send_message(
+            chat_id=user_id,
+            text=(
+                "🕰️ Welcome to Time Capsule Bot!\n\n"
+                "Send a text message and it will return to you at an unknown time.\n\n"
+                "⌛️ /status - Check your capsules\n"
+                "💫 /wall - Read shared capsules\n"
+                "❓ /help - Show this help"
+            ),
+        )
+    elif text.startswith("/"):
+        telegram_bot.send_message(chat_id=user_id, text="Unknown command. Use /help for options.")
+    elif text:
+        add_capsule(text, user_id, admin_chat_id)
 
-# Background thread to check time capsules
-def capsule_checker():
+
+class CapsuleHTTPServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+class PublicRequestHandler(http.server.SimpleHTTPRequestHandler):
+    server_version = "TimeCapsuleHTTP/1.0"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(SCRIPT_DIR), **kwargs)
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        super().end_headers()
+
+    def _send_json(self, payload: object, status: int = 200, head_only: bool = False) -> None:
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(encoded)
+
+    def _route(self, head_only: bool = False) -> None:
+        request_path = unquote(urlsplit(self.path).path)
+        request_path = "/" + posixpath.normpath(request_path).lstrip("/")
+        if request_path == "/healthz":
+            try:
+                capsules = load_capsules()
+                self._send_json({"status": "ok", "storage": "ready", "capsules": len(capsules)}, head_only=head_only)
+            except (OSError, ValueError, json.JSONDecodeError):
+                self._send_json({"status": "unhealthy", "storage": "unavailable"}, 503, head_only)
+            return
+        if request_path == "/time_capsules.json":
+            try:
+                self._send_json(get_public_capsules(), head_only=head_only)
+            except (OSError, ValueError, json.JSONDecodeError):
+                self._send_json({"error": "public capsules are temporarily unavailable"}, 503, head_only)
+            return
+        if request_path == "/":
+            request_path = "/index.html"
+        if request_path not in PUBLIC_FILES:
+            self.send_error(404)
+            return
+        self.path = request_path
+        if head_only:
+            super().do_HEAD()
+        else:
+            super().do_GET()
+
+    def do_GET(self):
+        self._route(False)
+
+    def do_HEAD(self):
+        self._route(True)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Allow", "GET, HEAD, OPTIONS")
+        self.end_headers()
+
+
+def start_web_server() -> None:
+    with CapsuleHTTPServer(("", WEB_PORT), PublicRequestHandler) as server:
+        print(f"Web wall listening on port {WEB_PORT}")
+        server.serve_forever()
+
+
+def capsule_checker() -> None:
     while True:
         try:
-            print("Checking time capsules...")
             check_and_send_capsules()
-            time.sleep(10)  # Check every 10 seconds for testing
-        except Exception as e:
-            print(f"Error checking capsules: {e}")
-            time.sleep(10)
+        except Exception as exc:
+            print(f"Capsule delivery check failed: {exc}")
+        time.sleep(CHECK_INTERVAL_SECONDS)
 
-# 启动服务
-print("🕰️ Time Capsule Bot v2.4.2 starting...")
-print(f"📁 Capsules stored in: {CAPSULES_FILE}")
-print(f"🌐 Web server will start on port {WEB_PORT}")
 
-# 启动Web服务器线程
-print("🌐 Starting web server...")
-web_thread = threading.Thread(target=start_web_server, daemon=True)
-web_thread.start()
+def register_handlers(telegram_bot: telebot.TeleBot, admin_chat_id: int) -> None:
+    telegram_bot.register_callback_query_handler(handle_callback, func=lambda _call: True)
+    telegram_bot.register_message_handler(
+        lambda message: handle_message(message, admin_chat_id),
+        content_types=["text"],
+        func=lambda _message: True,
+    )
 
-# 启动时间胶囊检查线程
-checker_thread = threading.Thread(target=capsule_checker, daemon=True)
-checker_thread.start()
 
-# Start Bot with error handling and auto-restart
-while True:
+def main() -> None:
+    global bot
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise SystemExit("TELEGRAM_BOT_TOKEN is required")
     try:
-        print("🚀 Starting bot polling...")
-        bot.polling(none_stop=True, interval=1, timeout=30)
-    except KeyboardInterrupt:
-        print("\n⏹️ Bot stopped by user")
-        break
-    except Exception as e:
-        print(f"❌ Bot error: {e}")
-        print("🔄 Restarting bot in 5 seconds...")
-        time.sleep(5)
+        admin_chat_id = int(os.getenv("ADMIN_CHAT_ID", "0"))
+    except ValueError as exc:
+        raise SystemExit("ADMIN_CHAT_ID must be an integer") from exc
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    bot = telebot.TeleBot(token, threaded=True)
+    register_handlers(bot, admin_chat_id)
+    threading.Thread(target=start_web_server, daemon=True, name="public-wall").start()
+    threading.Thread(target=capsule_checker, daemon=True, name="capsule-checker").start()
+    print(f"Time Capsule Bot v{VERSION} started; private data is stored in {DATA_DIR}")
+    bot.infinity_polling(timeout=30, long_polling_timeout=30, skip_pending=False)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,35 +1,18 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 
-echo "🚀 Deploying Time Capsule Bot..."
-
-# 加载环境变量
 if [ -f .env ]; then
-    echo "📋 Loading environment variables from .env..."
-    source .env
-else
-    echo "⚠️  .env file not found"
+    set -a
+    . ./.env
+    set +a
 fi
 
-# 检查环境变量
-if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-    echo "❌ Error: TELEGRAM_BOT_TOKEN not set"
-    echo "Please set it in .env file or export it"
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    echo "TELEGRAM_BOT_TOKEN is required in the environment or .env" >&2
     exit 1
 fi
 
-echo "✅ TELEGRAM_BOT_TOKEN loaded successfully"
-
-# 创建数据目录
-mkdir -p ./data
-
-# 停止现有容器
-echo "🛑 Stopping existing containers..."
-docker-compose down
-
-# 构建并启动
-echo "🔨 Building and starting containers..."
-docker-compose up -d --build
-
-# 查看日志
-echo "📋 Container logs:"
-docker-compose logs -f
+mkdir -p data
+chmod 700 data
+docker compose up -d --build --remove-orphans
+docker compose ps

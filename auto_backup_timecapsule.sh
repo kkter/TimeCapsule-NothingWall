@@ -1,32 +1,34 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 
-# Create local, ignored backups. Private capsule data must never be committed.
-FILE_PATH="data/time_capsules.json"
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-LOGS_DIR="$REPO_ROOT/logs"
-LOG_FILE="$LOGS_DIR/backup_script_log.txt"
-BACKUP_DIR="$REPO_ROOT/backups"
-
-log_message() {
-    mkdir -p "$LOGS_DIR"
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+repository_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "This script must run inside the repository." >&2
+    exit 1
 }
+capsule_file="$repository_root/data/time_capsules.json"
+backup_directory="${BACKUP_DIR:-$repository_root/data/manual-backups}"
+retention="${BACKUP_RETENTION:-30}"
 
-cd "$REPO_ROOT" || { log_message "Error: Could not navigate to repo root"; exit 1; }
-
-log_message "Starting local backup for $FILE_PATH"
-
-if [ ! -f "$FILE_PATH" ]; then
-    log_message "Error: $FILE_PATH does not exist."
+if [ ! -f "$capsule_file" ]; then
+    echo "Private capsule store does not exist: $capsule_file" >&2
     exit 1
 fi
 
-mkdir -p "$BACKUP_DIR"
-BACKUP_FILE="$BACKUP_DIR/time_capsules_$(date +'%Y%m%d_%H%M%S').json"
-cp "$FILE_PATH" "$BACKUP_FILE" || { log_message "Error: Backup failed"; exit 1; }
-chmod 600 "$BACKUP_FILE"
-log_message "Saved private backup to $BACKUP_FILE"
+mkdir -p "$backup_directory"
+chmod 700 "$backup_directory"
+timestamp=$(date -u +'%Y%m%dT%H%M%SZ')
+temporary_backup="$backup_directory/.time_capsules_${timestamp}.tmp"
+final_backup="$backup_directory/time_capsules_${timestamp}.json"
 
-log_message "Local backup finished."
-echo "----------------------------------------" >> "$LOG_FILE"
-exit 0
+cp "$capsule_file" "$temporary_backup"
+chmod 600 "$temporary_backup"
+mv "$temporary_backup" "$final_backup"
+
+find "$backup_directory" -type f -name 'time_capsules_*.json' -print \
+    | sort -r \
+    | awk -v keep="$retention" 'NR > keep' \
+    | while IFS= read -r old_backup; do
+        rm -f -- "$old_backup"
+      done
+
+echo "Private backup saved: $final_backup"
