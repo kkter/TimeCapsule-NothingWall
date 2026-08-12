@@ -2,7 +2,7 @@
 
 A Telegram bot that returns a message to its author at a randomly selected future date. After a capsule opens, its author can choose whether to publish the message anonymously on the companion web wall.
 
-[Live wall](https://capsule.520353.xyz) · [Telegram bot](https://t.me/MoonTimeCapsuleBot)
+[Live wall](https://capsule.520353.xyz)
 
 ## What this project demonstrates
 
