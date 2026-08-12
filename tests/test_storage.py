@@ -6,6 +6,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 import time_capsule
 
@@ -136,6 +137,13 @@ class StorageTests(unittest.TestCase):
         self.assertNotIn("capsule.shared === true", html)
         self.assertNotIn("bubble.innerHTML", html)
         self.assertIn("messageElement.textContent", html)
+
+    def test_web_only_mode_does_not_require_a_telegram_token(self):
+        with patch.dict(os.environ, {"BOT_ENABLED": "false"}, clear=True), patch.object(
+            time_capsule, "start_web_server"
+        ) as start_server:
+            time_capsule.main()
+        start_server.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,8 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
+      BOT_ENABLED: "${BOT_ENABLED:-true}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       ADMIN_CHAT_ID: "${ADMIN_CHAT_ID:-0}"
       DATA_DIR: /app/data
       WEB_PORT: "9000"

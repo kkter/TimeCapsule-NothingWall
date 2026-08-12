@@ -64,6 +64,8 @@ docker compose up -d --build
 
 The wall binds to `127.0.0.1:5102` by default for use behind Nginx. Override `CAPSULE_BIND_ADDRESS` or `CAPSULE_PORT` only when needed.
 
+To serve the public wall before a Telegram token is available, set `BOT_ENABLED=false`. The service then runs only the allowlisted wall and health endpoints. Set `BOT_ENABLED=true` and provide the dedicated bot token to enable delivery and polling.
+
 ## Bot commands
 
 | Command | Purpose |

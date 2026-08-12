@@ -7,8 +7,8 @@ if [ -f .env ]; then
     set +a
 fi
 
-if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
-    echo "TELEGRAM_BOT_TOKEN is required in the environment or .env" >&2
+if [ "${BOT_ENABLED:-true}" != "false" ] && [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    echo "TELEGRAM_BOT_TOKEN is required when BOT_ENABLED is not false" >&2
     exit 1
 fi
 

@@ -414,15 +414,21 @@ def register_handlers(telegram_bot: telebot.TeleBot, admin_chat_id: int) -> None
 
 def main() -> None:
     global bot
+    bot_enabled = os.getenv("BOT_ENABLED", "1").lower() in {"1", "true", "yes"}
+    DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not bot_enabled:
+        print(f"Time Capsule Wall v{VERSION} started in web-only mode")
+        start_web_server()
+        return
+
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
-        raise SystemExit("TELEGRAM_BOT_TOKEN is required")
+        raise SystemExit("TELEGRAM_BOT_TOKEN is required when BOT_ENABLED=true")
     try:
         admin_chat_id = int(os.getenv("ADMIN_CHAT_ID", "0"))
     except ValueError as exc:
         raise SystemExit("ADMIN_CHAT_ID must be an integer") from exc
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     bot = telebot.TeleBot(token, threaded=True)
     register_handlers(bot, admin_chat_id)
     threading.Thread(target=start_web_server, daemon=True, name="public-wall").start()
