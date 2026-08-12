@@ -137,6 +137,8 @@ class StorageTests(unittest.TestCase):
         self.assertNotIn("capsule.shared === true", html)
         self.assertNotIn("bubble.innerHTML", html)
         self.assertIn("messageElement.textContent", html)
+        self.assertIn("No shared capsules yet — showing demo messages.", html)
+        self.assertIn("Demo capsule", html)
 
     def test_web_only_mode_does_not_require_a_telegram_token(self):
         with patch.dict(os.environ, {"BOT_ENABLED": "false"}, clear=True), patch.object(

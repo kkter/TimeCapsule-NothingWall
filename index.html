@@ -69,10 +69,13 @@
         .header { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); text-align: center; color: white; z-index: 100; }
         .header h1 { font-size: 2.5rem; margin-bottom: 10px; background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
         .header p { font-size: 1.1rem; opacity: 0.8; }
+        .wall-status { position: absolute; top: 105px; left: 50%; transform: translateX(-50%); z-index: 100; padding: 8px 14px; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 999px; background: rgba(10, 15, 30, 0.58); color: rgba(255, 255, 255, 0.78); font-size: 13px; text-align: center; backdrop-filter: blur(10px); }
+        .wall-status:empty { display: none; }
         .floating-info { position: absolute; bottom: 30px; right: 30px; color: white; opacity: 0.7; font-size: 14px; text-align: right; }
         @media (max-width: 768px) { 
             .wisdom-bubble { font-size: 14px; padding: 12px 20px; max-width: 300px; } 
             .header h1 { font-size: 1.6rem; } 
+            .wall-status { top: 88px; width: calc(100% - 32px); }
         }
     </style>
 </head>
@@ -81,15 +84,17 @@
     <header class="header">
         <h1>Nothing Wall ● Time Capsules</h1>
     </header>
+    <div class="wall-status" id="wallStatus" role="status" aria-live="polite"></div>
     <main class="wisdom-container" id="wisdomContainer"></main>
     <aside class="floating-info">
         <div>Click on bubbles to pause and read.</div>
-        <div>Bubbles from <a href="https://t.me/MoonTimeCapsuleBot" target="_blank" style="color: #4ecdc4; text-decoration: none; border-bottom: 1px dotted;">Time Capsules</a>.</div>
+        <div>Authors choose whether to share capsules anonymously.</div>
     </aside>
     <script>
         class WisdomWall {
             constructor() {
                 this.container = document.getElementById('wisdomContainer');
+                this.status = document.getElementById('wallStatus');
                 this.messages = [];
                 this.activeElements = [];
                 this.messageIndex = 0; // 用于顺序显示消息
@@ -108,27 +113,41 @@
             async loadMessages() {
                 try {
                     const response = await fetch('time_capsules.json');
+                    if (!response.ok) {
+                        throw new Error(`Wall data request failed with ${response.status}`);
+                    }
                     const allCapsules = await response.json();
+                    if (!Array.isArray(allCapsules)) {
+                        throw new Error('Wall data is not an array');
+                    }
                     this.messages = allCapsules
                         .map(capsule => ({
                             message: capsule.message,
                             original_time: capsule.created_at,
                             shared_at: capsule.created_at,
                             reactions: 0
-                        }));
+                        }))
+                        .filter(capsule => typeof capsule.message === 'string' && capsule.message.trim());
+                    if (this.messages.length === 0) {
+                        this.useDemoMessages('No shared capsules yet — showing demo messages.');
+                    }
                     console.log(`Loaded ${this.messages.length} shared messages`);
                     this.shuffleMessages(); // 在开始动画前打乱消息顺序
                     this.startAnimation(); // 加载成功后立即开始动画
                 } catch (error) {
-                    this.messages = [
-                        { message: "当你和另一伴吵架时你们要记得，\n是你们vs问题，\n而不是你vs他。", original_time: "2023-01-12T11:13:25.278397", shared_at: "2023-01-12T18:15:25.278397", reactions: 5 },
-                        { message: "Those who can get out of a storm never rely on an umbrella.", original_time: "2023-09-02T11:17:57.153028", shared_at: "2023-09-02T18:20:25.278397", reactions: 3 },
-                        { message: "If you cannot decide, the answer is no.", original_time: "2025-06-02T17:13:31.734241", shared_at: "2025-06-02T18:25:25.278397", reactions: 8 }
-                    ];
+                    this.useDemoMessages('Wall data is temporarily unavailable — showing demo messages.');
                     console.log('Using sample data');
                     this.shuffleMessages(); // 对示例数据也打乱顺序
                     this.startAnimation(); // 使用示例数据也立即开始
                 }
+            }
+            useDemoMessages(statusMessage) {
+                this.status.textContent = statusMessage;
+                this.messages = [
+                    { message: 'Write a note to the person you are becoming.', demo: true },
+                    { message: 'Some moments reveal their meaning only after time has passed.', demo: true },
+                    { message: '未来的你，会感谢今天认真生活的自己。', demo: true }
+                ];
             }
             shuffleMessages() {
                 // 使用 Fisher-Yates (aka Knuth) 算法打乱数组
@@ -163,9 +182,12 @@
                 messageElement.textContent = String(messageData.message || '');
                 const timestampElement = document.createElement('div');
                 timestampElement.className = 'time-stamp';
-                timestampElement.textContent = this.getTimeAgo(messageData.shared_at);
+                timestampElement.textContent = messageData.demo ? 'Demo capsule' : this.getTimeAgo(messageData.shared_at);
                 bubble.append(messageElement, timestampElement);
                 bubble.style.top = `${Math.random() * 80 + 10}%`;
+                if (this.activeElements.length === 0) {
+                    bubble.style.animationDelay = '-3s';
+                }
                 bubble.addEventListener('mouseenter', () => bubble.classList.add('paused'));
                 bubble.addEventListener('mouseleave', () => bubble.classList.remove('paused'));
                 return bubble;
